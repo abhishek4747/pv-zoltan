@@ -1,3 +1,3 @@
 [submodule "trilinos"]
 	path = trilinos
-	url = https://github.com/abhishek4747/trilinos
+	url = http://github.com/abhishek4747/trilinos
