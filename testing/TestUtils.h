@@ -99,6 +99,7 @@ class TestStruct {
   //
   double      particleSize;
   double      ghostOverlap;
+  int         ghostLevels;
   int         maxN;
   std::string massScalars;
   std::string densityScalars;
