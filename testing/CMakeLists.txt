@@ -187,6 +187,7 @@ IF (processors)
 #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
+      -ghostOverlap 10.0
       -scalarMode 0
       -scalarName ProcessId
       -scalarRange "0 3"
@@ -208,8 +209,9 @@ IF (processors)
 #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
+      -ghostOverlap 10.0
       -scalarMode 1
-      -scalarName GhostLevel
+      -scalarName vtkGhostLevels
       -scalarRange "0 3"
       -actorShift 0.25
       -windowSize "1024 800"
