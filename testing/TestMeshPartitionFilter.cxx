@@ -86,7 +86,6 @@ int main (int argc, char* argv[])
 
   test.CreateXMLPolyDataReader();
   test.xmlreader->Update();
-  test.ghostLevels = 0;
 
   //--------------------------------------------------------------
   // Parallel partition
@@ -96,11 +95,15 @@ int main (int argc, char* argv[])
   test.partitioner->SetInputDisposable(1);
   test.partitioner->SetKeepInversePointLists(1);
   if (test.ghostOverlap>0) {
+      testDebugMacro("****** Bounding Box Mode ******\tGhost overlatp: "<<test.ghostOverlap<<"\tGhost levels: "<<test.ghostLevels);
       static_cast<vtkMeshPartitionFilter*>(test.partitioner.GetPointer())->SetGhostCellOverlap(test.ghostOverlap);
-      static_cast<vtkMeshPartitionFilter*>(test.partitioner.GetPointer())->SetNumberOfGhostLevels(1);
+      static_cast<vtkMeshPartitionFilter*>(test.partitioner.GetPointer())->SetNumberOfGhostLevels(test.ghostLevels);
+      static_cast<vtkMeshPartitionFilter*>(test.partitioner.GetPointer())->SetGhostModeToBoundingBox();
   }
   else {
+      testDebugMacro("****** Neighbor Touching Mode ******\tGhost levels: "<<test.ghostLevels);
       static_cast<vtkMeshPartitionFilter*>(test.partitioner.GetPointer())->SetNumberOfGhostLevels(test.ghostLevels);
+      static_cast<vtkMeshPartitionFilter*>(test.partitioner.GetPointer())->SetGhostModeToNeighbourCells();
   }
 
   partition_elapsed = test.UpdatePartitioner();

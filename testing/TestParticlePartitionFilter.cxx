@@ -121,17 +121,14 @@ int main (int argc, char* argv[])
   // Create default scalar arrays
   //--------------------------------------------------------------
   double radius  = 500.0;
-  const double a = 0.9;
   test.ghostOverlap = radius*0.1; // ghost_region
-  test.ghostLevels = 0;
   
   known_seed();
   if (test.particleGenerator==0) {
       SpherePoints(test.generateN, radius*(1.5+test.myRank)/(test.numProcs+0.5), vtkFloatArray::SafeDownCast(points->GetData())->GetPointer(0));
   }
   else {
-      CubePoints(test.generateN, radius,
-                   vtkFloatArray::SafeDownCast(points->GetData())->GetPointer(0), Weights->GetPointer(0));
+      CubePoints(test.generateN, 2*radius, vtkFloatArray::SafeDownCast(points->GetData())->GetPointer(0), Weights->GetPointer(0));
   }
   for (vtkIdType Id=0; Id<test.generateN; Id++) {
     Ids->SetTuple1(Id, Id + test.myRank*test.generateN);
@@ -151,9 +148,11 @@ int main (int argc, char* argv[])
   //--------------------------------------------------------------
   test.CreatePartitioner_Particles();
   test.partitioner->SetInputData(Sprites);
+#ifdef VTK_ZOLTAN2_PARTITION_FILTER
   if (test.useWeights) {
       test.partitioner->SetPointWeightsArrayName("Weights");
   }
+#endif
 //  test.partitioner->SetIdChannelArray("PointIds");
   static_cast<vtkParticlePartitionFilter*>(test.partitioner.GetPointer())->SetGhostCellOverlap(test.ghostOverlap);
   static_cast<vtkParticlePartitionFilter*>(test.partitioner.GetPointer())->SetNumberOfGhostLevels(test.ghostLevels);

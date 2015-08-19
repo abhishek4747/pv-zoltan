@@ -325,18 +325,57 @@ int vtkMeshPartitionFilter::RequestData(vtkInformation* info,
     this->MigrateLists.known.LocalIdsToKeep.clear();
   }
 
-  if (this->InputDisposable) {
-    vtkDebugMacro(<<"Disposing of input points and point data");
-    this->ZoltanCallbackData.Input->SetPoints(NULL);
-    this->ZoltanCallbackData.Input->GetPointData()->Initialize();
-  }
-
   // after deleting memory, add a barrier to let ranks free as much as possible before the next big allocation
   this->Controller->Barrier();
   //
   // Distribute cells based on the usage of the points already distributed
   //
   this->PartitionCells(cell_partitioninfo);
+
+  // if we are generating ghost cells for the mesh, then we must allocate a new array
+  // on the output to store the ghost cell information (level 0,1,2...N ) etc
+  vtkIdType numCells = this->ZoltanCallbackData.Output->GetNumberOfCells();
+  vtkIdType numTotalCells = numCells  + cell_partitioninfo.LocalIdsToKeep.size();
+  my_debug("Created a ghost array with "<<numTotalCells);
+  this->ghost_array = vtkIntArray::New();
+  this->ghost_array->SetName("vtkGhostLevels");
+  this->ghost_array->SetNumberOfTuples(numTotalCells);
+  this->ZoltanCallbackData.Output->GetCellData()->AddArray(this->ghost_array);
+
+  VTK_ZOLTAN_PARTITION_FILTER::CallbackData *callbackdata = &this->ZoltanCallbackData;
+  
+  for (int i=0; i<this->ZoltanCallbackData.Output->GetNumberOfCells(); i++) {
+    this->ghost_array->SetTuple1(i, 0);
+  }
+  if (this->NumberOfGhostLevels>0){
+    vtkPolyData         *pdata = vtkPolyData::SafeDownCast(this->ZoltanCallbackData.Input);
+    vtkPolyData         *pdata2 = vtkPolyData::SafeDownCast(this->ZoltanCallbackData.Output);
+    vtkIdType npts, *pts, newPts[32];
+    for (int i=0; i< cell_partitioninfo.LocalIdsToKeep.size(); i++) {
+      vtkIdType cellId = cell_partitioninfo.LocalIdsToKeep[i];
+      if (pdata) { pdata->GetCellPoints(cellId, npts, pts); }
+      for (int pc=0; pc<npts; pc++) {
+        newPts[pc] =  callbackdata->LocalToLocalIdMap[pts[pc]];
+      }
+      pdata2->InsertNextCell(pdata->GetCellType(cellId), npts, newPts);
+#ifdef VTK_ZOLTAN2_PARTITION_FILTER
+      this->ghost_array->SetTuple1(numCells + i, cell_partitioninfo.LocalIdsToSend[i] );
+#else
+      this->ghost_array->SetTuple1(numCells +i, 1);
+#endif
+      this->ZoltanCallbackData.OutCellCount++;
+    }
+  }
+  if (this->InputDisposable) {
+    vtkDebugMacro(<<"Disposing of input points and point data");
+    this->ZoltanCallbackData.Input->SetPoints(NULL);
+    this->ZoltanCallbackData.Input->GetPointData()->Initialize();
+  }
+
+#ifdef VTK_ZOLTAN2_PARTITION_FILTER
+  cell_partitioninfo.LocalIdsToSend.clear();
+#endif
+  cell_partitioninfo.LocalIdsToKeep.clear();
   //
   // build a tree of bounding boxes to use for rendering info/hints or other spatial tests
   //
@@ -344,6 +383,10 @@ int vtkMeshPartitionFilter::RequestData(vtkInformation* info,
   // this->CreatePkdTree();
   // this->ExtentTranslator->SetKdTree(this->GetKdtree());
 
+
+  
+  
+  my_debug("Ghost Cells marked");
   //*****************************************************************
   // Free the storage allocated for the Zoltan structure.
   //*****************************************************************
@@ -440,7 +483,7 @@ int vtkMeshPartitionFilter::PartitionCells(PartitionInfo &cell_partitioninfo)
   vtkDebugMacro(<<"Release pre-invert arrays (cells)");
   cell_partitioninfo.GlobalIds.clear();
   cell_partitioninfo.Procs.clear();
-  cell_partitioninfo.LocalIdsToKeep.clear();
+//  cell_partitioninfo.LocalIdsToKeep.clear();
 
   return 1;
 }
@@ -467,16 +510,6 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
   // we will put the results of the cell tests in these arrays
   cell_partitioninfo.Procs.reserve(numCells/this->UpdateNumPieces);
   cell_partitioninfo.GlobalIds.reserve(numCells/this->UpdateNumPieces);
-
-  // if we are generating ghost cells for the mesh, then we must allocate a new array
-  // on the output to store the ghost cell information (level 0,1,2...N ) etc
-  if (this->NumberOfGhostLevels>0) {
-      my_debug("Created a ghost array with "<<numCells);
-      this->ghost_array = vtkIntArray::New();
-      this->ghost_array->SetName("vtkGhostLevels");
-      this->ghost_array->SetNumberOfTuples(numCells);
-      this->ZoltanCallbackData.Output->GetCellData()->AddArray(this->ghost_array);
-  }
 
   // we know that some points on this process will be exported to remote processes
   // so build a point to process map to quickly lookup the process Id from the point Id
@@ -512,7 +545,7 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
   // a simple bitmask with one entry per process, used for each cell to count processes for the cell
   std::vector<unsigned char> process_flag(this->UpdateNumPieces,0);;
 
-  int LEVEL_MAX = 2;
+  int LEVEL_MAX = this->NumberOfGhostLevels;
   int REMOTE_LEVEL = 2*LEVEL_MAX +2;
   int LOCAL_LEVEL = 0;
   int GHOST_LEVEL = LEVEL_MAX+1;
@@ -520,9 +553,6 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
   std::vector<int> cell_status;
   cell_level_info.resize(numCells);
   cell_status.resize(numCells);
-
-  this->SetGhostModeToBoundingBox();
-//  this->SetGhostModeToNeighbourCells();
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // BOUNDING BOX
@@ -532,6 +562,7 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
     std::vector<int> point_to_level_map(N, -1);
     double bounds[6];
     data->GetBounds(bounds);
+
     vtkBoundingBox localBoundingBox(bounds);
     for (int proc=0; proc<this->UpdateNumPieces; proc++) {
       vtkBoundingBox b      = vtkBoundingBox(this->BoxList[proc]);
@@ -596,6 +627,16 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
       }
       cell_level_info[cellId] = max_level;
       
+      if (cell_level_info[cellId]>GHOST_LEVEL && cell_level_info[cellId]<REMOTE_LEVEL) {
+        cell_partitioninfo.LocalIdsToKeep.push_back(cellId);
+#ifdef VTK_ZOLTAN2_PARTITION_FILTER
+        cell_partitioninfo.LocalIdsToSend.push_back(cell_level_info[cellId]-GHOST_LEVEL);
+#endif
+        for (int pc=0; pc<npts; pc++) {
+          point_partitioninfo.LocalIdsToKeep.push_back(pts[pc]);
+        }
+      }
+      
       process_flag.assign(this->UpdateNumPieces,0);
       int points_remote = 0;
       for (j=0; j<npts; j++) {
@@ -628,8 +669,6 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
           throw std::string("This should not be possible");
         }
       }
-      if (this->NumberOfGhostLevels>0)
-        this->ghost_array->SetTuple1(cellId, cell_level_info[cellId]);
 
       //
       // We will use the process receiving the first point as the desired final location :
@@ -753,8 +792,6 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
       else {
         throw std::string("This should not be possible");
       }
-      if (LEVEL_MAX>0)
-        this->ghost_array->SetTuple1(cellId, cell_level_info[cellId]);
     }
 
       // Put level wise points in our map
@@ -793,91 +830,91 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
 
 
   if (LEVEL_MAX>0){
-    my_debug("Ghost Cells: "<<level_to_cell_map[GHOST_LEVEL].size()<<"\t Local: "<<level_to_cell_map[LOCAL_LEVEL].size()<<"\t Remote: "<<level_to_cell_map[REMOTE_LEVEL].size());
-    // Next Level Ghost Cells : Points to be kept
-    // Start from the ghost level and move towards remote level
-    for (int level = GHOST_LEVEL; level < REMOTE_LEVEL-1; ++level)
-    {
-      std::vector<vtkIdType> next_level_cells;
-//#define USE_VTK_ALGO_FOR_NEIGHBORS
-#ifdef  USE_VTK_ALGO_FOR_NEIGHBORS
-      
-      this->Timer->StartTimer();
-      for (int cell_id;  cell_id < level_to_cell_map[level].size(); ++cell_id) {
-        // Cell ID
-        cellId = level_to_cell_map[level][cell_id];
-        
-        // Get points belonging to this cell
-        vtkSmartPointer<vtkIdList> cellPointIds = vtkSmartPointer<vtkIdList>::New();
-        if (pdata) { pdata->GetCellPoints(cellId, cellPointIds); }
-        else if (udata) { udata->GetCellPoints(cellId, cellPointIds); }
-        
-        
-        //get the neighbors of the cell
-        vtkSmartPointer<vtkIdList> neighborCellIds = vtkSmartPointer<vtkIdList>::New();
-        if (pdata) { pdata->GetCellNeighbors(cellId, cellPointIds, neighborCellIds); }
-        else if (udata){ udata->GetCellNeighbors(cellId, cellPointIds, neighborCellIds); }
-        else{ my_debug("This shouldn't happen."); }
-        
-        for (int j =0;  j < neighborCellIds->GetNumberOfIds(); j++) {
-          next_level_cells.push_back(neighborCellIds->GetId(j));
-        }
-      }
-      this->Timer->StopTimer();
-      std::cout<<"Algo: vtk\t";
-#else
-      this->Timer->StartTimer();
-      next_level_cells.resize(0);
-      // For all cell at this level
-      for (int cell_id = 0; cell_id < level_to_cell_map[level].size(); ++cell_id)
+      my_debug("Ghost Cells: "<<level_to_cell_map[GHOST_LEVEL].size()<<"\t Local: "<<level_to_cell_map[LOCAL_LEVEL].size()<<"\t Remote: "<<level_to_cell_map[REMOTE_LEVEL].size());
+      // Next Level Ghost Cells : Points to be kept
+      // Start from the ghost level and move towards remote level
+      for (int level = GHOST_LEVEL; level < REMOTE_LEVEL-1; ++level)
       {
-        cellId = level_to_cell_map[level][cell_id];
-          std::vector<vtkIdType> pts_(cell_to_point_map[cellId]);
-          int npts_ = pts_.size();
-
-        // Find the neighbouring cell for each point and collect them in next_level_cells
-        for (j = 0; j < npts_; ++j)
+        std::vector<vtkIdType> next_level_cells;
+  //#define USE_VTK_ALGO_FOR_NEIGHBORS
+  #ifdef  USE_VTK_ALGO_FOR_NEIGHBORS
+        
+        this->Timer->StartTimer();
+        for (int cell_id;  cell_id < level_to_cell_map[level].size(); ++cell_id) {
+          // Cell ID
+          cellId = level_to_cell_map[level][cell_id];
+          
+          // Get points belonging to this cell
+          vtkSmartPointer<vtkIdList> cellPointIds = vtkSmartPointer<vtkIdList>::New();
+          if (pdata) { pdata->GetCellPoints(cellId, cellPointIds); }
+          else if (udata) { udata->GetCellPoints(cellId, cellPointIds); }
+          
+          
+          //get the neighbors of the cell
+          vtkSmartPointer<vtkIdList> neighborCellIds = vtkSmartPointer<vtkIdList>::New();
+          if (pdata) { pdata->GetCellNeighbors(cellId, cellPointIds, neighborCellIds); }
+          else if (udata){ udata->GetCellNeighbors(cellId, cellPointIds, neighborCellIds); }
+          else{ my_debug("This shouldn't happen."); }
+          
+          for (int j =0;  j < neighborCellIds->GetNumberOfIds(); j++) {
+            next_level_cells.push_back(neighborCellIds->GetId(j));
+          }
+        }
+        this->Timer->StopTimer();
+        std::cout<<"Algo: vtk\t";
+  #else
+        this->Timer->StartTimer();
+        next_level_cells.resize(0);
+        // For all cell at this level
+        for (int cell_id = 0; cell_id < level_to_cell_map[level].size(); ++cell_id)
         {
-            std::vector<vtkIdType> new_cells(point_to_cell_map[pts_[j]]);
-            next_level_cells.insert(next_level_cells.end(), new_cells.begin(), new_cells.end());  
-        }
-      }
-      this->Timer->StopTimer();
-      std::cout<<"Algo: brute force\t";
-      
-#endif
-      
-      // Find unique next level cell
-      std::sort(next_level_cells.begin(), next_level_cells.end());
-      next_level_cells.erase(std::unique(next_level_cells.begin(), next_level_cells.end()), next_level_cells.end() );
-
-      my_debug("Finding Neighbor Time: "<<this->Timer->GetElapsedTime()<<"\t Neighbors:"<<next_level_cells.size());
-
-      // For each neighboring cell
-      for (j = 0; j <  next_level_cells.size(); ++j)
-      {
-        vtkIdType neighborCellId = next_level_cells[j];
-
-          // If it is a remote cell 
-          if (cell_level_info[neighborCellId]==REMOTE_LEVEL)
-          {
-            // first erase from old level list, assign it a new level then add to new level list
-            level_to_cell_map[cell_level_info[neighborCellId]].erase(std::find(level_to_cell_map[cell_level_info[neighborCellId]].begin(), 
-              level_to_cell_map[cell_level_info[neighborCellId]].end(), neighborCellId));
-            cell_level_info[neighborCellId] = level+1;  
-            level_to_cell_map[cell_level_info[neighborCellId]].push_back(neighborCellId);
-
-            // I want to keep those points too          
-            std::vector<vtkIdType> pts_(cell_to_point_map[neighborCellId]);
+          cellId = level_to_cell_map[level][cell_id];
+            std::vector<vtkIdType> pts_(cell_to_point_map[cellId]);
             int npts_ = pts_.size();
 
-            for (int i = 0; i < npts_; ++i)
-            {
-              point_partitioninfo.LocalIdsToKeep.push_back(pts_[i]);
-            }
-          }    
+          // Find the neighbouring cell for each point and collect them in next_level_cells
+          for (j = 0; j < npts_; ++j)
+          {
+              std::vector<vtkIdType> new_cells(point_to_cell_map[pts_[j]]);
+              next_level_cells.insert(next_level_cells.end(), new_cells.begin(), new_cells.end());  
+          }
         }
-      }
+        this->Timer->StopTimer();
+        std::cout<<"Algo: brute force\t";
+        
+  #endif
+        
+        // Find unique next level cell
+        std::sort(next_level_cells.begin(), next_level_cells.end());
+        next_level_cells.erase(std::unique(next_level_cells.begin(), next_level_cells.end()), next_level_cells.end() );
+
+        my_debug("Finding Neighbor Time: "<<this->Timer->GetElapsedTime()<<"\t Neighbors:"<<next_level_cells.size());
+
+        // For each neighboring cell
+        for (j = 0; j <  next_level_cells.size(); ++j)
+        {
+          vtkIdType neighborCellId = next_level_cells[j];
+
+            // If it is a remote cell 
+            if (cell_level_info[neighborCellId]==REMOTE_LEVEL)
+            {
+              // first erase from old level list, assign it a new level then add to new level list
+              level_to_cell_map[cell_level_info[neighborCellId]].erase(std::find(level_to_cell_map[cell_level_info[neighborCellId]].begin(), 
+                level_to_cell_map[cell_level_info[neighborCellId]].end(), neighborCellId));
+              cell_level_info[neighborCellId] = level+1;  
+              level_to_cell_map[cell_level_info[neighborCellId]].push_back(neighborCellId);
+
+              // I want to keep those points too          
+              std::vector<vtkIdType> pts_(cell_to_point_map[neighborCellId]);
+              int npts_ = pts_.size();
+
+              for (int i = 0; i < npts_; ++i)
+              {
+                point_partitioninfo.LocalIdsToKeep.push_back(pts_[i]);
+              }
+            }    
+          }
+        }
 
       
       
@@ -946,10 +983,25 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
           }
         }
       }
+    
       
       for (int level = LOCAL_LEVEL; level <= REMOTE_LEVEL ; ++level)
       {
         my_debug("Level:"<<level<<"\t Cells:"<<level_to_cell_map[level].size()<<"\t Cells:"<<std::count(cell_level_info.begin(), cell_level_info.end(), level) );
+        if (level>=GHOST_LEVEL && level<REMOTE_LEVEL) {
+          for (int cid=0; cid<level_to_cell_map[level].size(); cid++) {
+            cellId = level_to_cell_map[level][cid];
+//            if (cell_level_info[cellId]>GHOST_LEVEL && cell_level_info[cellId]<REMOTE_LEVEL) {
+              cell_partitioninfo.LocalIdsToKeep.push_back(cellId);
+#ifdef VTK_ZOLTAN2_PARTITION_FILTER
+              cell_partitioninfo.LocalIdsToSend.push_back(cell_level_info[cellId]-GHOST_LEVEL);
+#endif
+              for (int pc=0; pc<npts; pc++) {
+                point_partitioninfo.LocalIdsToKeep.push_back(pts[pc]);
+              }
+//            }
+          }
+        }
       }
     }
   }

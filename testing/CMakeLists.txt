@@ -112,6 +112,7 @@ IF (processors)
       -T "${PLUGIN_TEST_DIR}"
       -generateParticles 1000
       -particleGenerator 0
+      -ghostLevels 0
       -scalarName ProcessId
       -scalarMode 0
       -scalarRange "0 3"
@@ -131,6 +132,7 @@ IF (processors)
       -T "${PLUGIN_TEST_DIR}"
       -generateParticles 1000
       -particleGenerator 0
+      -ghostLevels 1
       -scalarName vtkGhostLevels
       -scalarMode 0
       -scalarRange "0 1"
@@ -150,6 +152,7 @@ IF (processors)
       -T "${PLUGIN_TEST_DIR}"
       -generateParticles 5000
       -particleGenerator 1
+      -ghostLevels 0
       -scalarName Weights
       -scalarMode 0
       -scalarRange "0 1"
@@ -188,13 +191,14 @@ IF (processors)
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
       -ghostOverlap 10.0
+      -ghostLevels 1
       -scalarMode 0
       -scalarName ProcessId
       -scalarRange "0 3"
       -actorShift 0.0
       -windowSize "1024 800"
   )
-  SET(test_name "TestMeshPartitionFilterGhost-P4")
+  SET(test_name "TestMeshPartitionFilterBoundingGhost-P4")
   ADD_TEST(
     NAME ${test_name}
     COMMAND 
@@ -210,16 +214,40 @@ IF (processors)
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
       -ghostOverlap 10.0
+      -ghostLevels 2
       -scalarMode 1
       -scalarName vtkGhostLevels
       -scalarRange "0 3"
-      -actorShift 0.25
+      -actorShift 0.5
       -windowSize "1024 800"
+  )
+  SET(test_name "TestMeshPartitionFilterNeighborGhost-P4")
+  ADD_TEST(
+  NAME ${test_name}
+  COMMAND
+  ${MPIEXEC} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 4
+  $<TARGET_FILE:TestMeshPartitionFilter>
+  -testName ${test_name}
+  -T "${PLUGIN_TEST_DIR}"
+  -F soma-4-partitions.pvtp
+  -D ${PROJECT_SOURCE_DIR}/testing/data
+  -V ${PROJECT_SOURCE_DIR}/testing/baseline/MeshPartitionGhost.png
+  -doRender 1
+  #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
+  #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
+  #      -cameraViewUp   "0 1 0"
+  -ghostOverlap 0.0
+  -ghostLevels 2
+  -scalarMode 1
+  -scalarName vtkGhostLevels
+  -scalarRange "0 3"
+  -actorShift 0.5
+  -windowSize "1024 800"
   )
   SET(test_name "TestMeshPartitionFilterScalars-P4")
   ADD_TEST(
     NAME ${test_name}
-    COMMAND 
+    COMMAND
       ${MPIEXEC} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 4
       $<TARGET_FILE:TestMeshPartitionFilter> 
       -testName ${test_name}
@@ -231,6 +259,7 @@ IF (processors)
 #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
+      -ghostLevels 0
       -scalarMode 0
       -scalarName "RTNeuron Opacity"
       -scalarRange "0 1"

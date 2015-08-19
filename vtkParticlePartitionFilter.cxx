@@ -165,7 +165,7 @@ int vtkParticlePartitionFilter::RequestData(vtkInformation* info,
   // some local points were kept as they were inside the local ghost region, we need to mark them
   for (std::vector<vtkIdType>::iterator it = this->MigrateLists.known.LocalIdsToKeep.begin(); it!=this->MigrateLists.known.LocalIdsToKeep.end(); ++it) {
     vtkIdType Id = this->ZoltanCallbackData.LocalToLocalIdMap[*it];
-    ghost[Id] = 2;
+    ghost[Id] = 1;
   }
   
   // some local points were kept as they were inside the local ghost region, we need to mark them

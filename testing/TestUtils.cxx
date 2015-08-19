@@ -202,6 +202,7 @@ int initTest(int argc, char* argv[], TestStruct &test)
   //
   test.particleSize = GetParameter<double>("-particlesize", "Particle Size", argc, argv, 0, test.myRank, test.fixRadius);
   test.ghostOverlap = GetParameter<double>("-ghostOverlap", "Ghost Region size", argc, argv, 0.0, test.myRank, unused);
+  test.ghostLevels = GetParameter<int>("-ghostLevels", "Number of Ghost levels", argc, argv, 0, test.myRank, unused);
   GetArrayParameter<double>("-gridSpacing", "Grid Spacing", test.gridSpacing, 3, argc, argv, test.myRank);
   GetArrayParameter<int>("-gridResolution", "Grid Resolution", test.gridResolution, 3, argc, argv, test.myRank);
   test.maxN = GetParameter<int>("-neighbours", "Fixed Neighbours", argc, argv, 0, test.myRank, test.fixNeighbours);
