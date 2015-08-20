@@ -191,7 +191,7 @@ IF (processors)
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
       -ghostOverlap 0.0
-      -ghostLevels 1
+      -ghostLevels 0
       -scalarMode 0
       -scalarName ProcessId
       -scalarRange "0 3"
@@ -208,18 +208,19 @@ IF (processors)
       -T "${PLUGIN_TEST_DIR}"
       -F soma-4-partitions.pvtp
       -D ${PROJECT_SOURCE_DIR}/testing/data
-      -V ${PROJECT_SOURCE_DIR}/testing/baseline/MeshPartitionGhost.png
+      -V ${PROJECT_SOURCE_DIR}/testing/baseline/MeshPartitionBoundingGhost.png
       -doRender 1
 #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
-      -ghostOverlap 5.0
-      -ghostLevels 2
+      -ghostOverlap 3.0
+      -ghostLevels 3
       -scalarMode 1
       -scalarName vtkGhostLevels
-      -scalarRange "0 3"
+      -scalarRange "0 4"
       -actorShift 0.75
       -windowSize "1024 800"
+      -renderBoundingBox 1
   )
   SET(test_name "TestMeshPartitionFilterNeighborGhost-P4")
   ADD_TEST(
@@ -231,16 +232,16 @@ IF (processors)
       -T "${PLUGIN_TEST_DIR}"
       -F soma-4-partitions.pvtp
       -D ${PROJECT_SOURCE_DIR}/testing/data
-      -V ${PROJECT_SOURCE_DIR}/testing/baseline/MeshPartitionGhost.png
+      -V ${PROJECT_SOURCE_DIR}/testing/baseline/MeshPartitionNeighborGhost.png
       -doRender 1
       #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
       #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
       #      -cameraViewUp   "0 1 0"
       -ghostOverlap 0.0
-      -ghostLevels 2
+      -ghostLevels 3
       -scalarMode 1
       -scalarName vtkGhostLevels
-      -scalarRange "0 3"
+      -scalarRange "0 4"
       -actorShift 0.75
       -windowSize "1024 800"
   )

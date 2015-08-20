@@ -93,6 +93,8 @@ class VTK_EXPORT vtkMeshPartitionFilter : public VTK_ZOLTAN_PARTITION_FILTER
     // The distance beyond a process region for which we require ghost cells
     vtkSetMacro(GhostCellOverlap, double);
     vtkGetMacro(GhostCellOverlap, double);
+  
+    PartitionInfo cell_partitioninfo;
 
   protected:
      vtkMeshPartitionFilter();

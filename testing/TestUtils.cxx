@@ -214,6 +214,7 @@ int initTest(int argc, char* argv[], TestStruct &test)
   // Test/Display of results
   //
   test.scalarName = GetParameter<std::string>("-scalarName", "Testing Scalar Array", argc, argv, "", test.myRank, unused);
+  test.renderBoundingBox = GetParameter<bool>("-renderBoundingBox", "Redere Bounding Box?", argc, argv, 0, test.myRank, unused);
   test.scalarMode = GetParameter<bool>("-scalarMode", "Point(0) or Cell(1) data", argc, argv, "", test.myRank, unused);
   test.contourVal = GetParameter<double>("-contour", "Contour Value", argc, argv, 0.0, test.myRank, unused);
   GetArrayParameter<double>("-scalarRange", "Scalar Range", test.scalarRange, 2, argc, argv, test.myRank);
@@ -408,7 +409,7 @@ int TestStruct::RenderPieces(int argc, char **argv, vtkPolyData *OutputData)
                              -actor_shift*(midpoint[2]-centre[2]));
         bactor->SetUserTransform(transform);
       
-      if (this->ghostOverlap>0){
+      if (this->renderBoundingBox && this->ghostOverlap>0){
           vtkBoundingBox box2 = vtkBoundingBox(*partitioner->GetPartitionBoundingBox(i));
           box2.Inflate(this->ghostOverlap);
           double bounds2[6];

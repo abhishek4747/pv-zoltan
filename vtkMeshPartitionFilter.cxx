@@ -73,7 +73,7 @@ void vtkMeshPartitionFilter::zoltan_pre_migrate_function_cell(void *data, int nu
   CallbackData *callbackdata = static_cast<CallbackData*>(data);
   // How many cells will we have at the end
   vtkIdType OutputNumberOfLocalCells = callbackdata->Input->GetNumberOfCells();
-  vtkIdType OutputNumberOfFinalCells = OutputNumberOfLocalCells + num_import - num_export;
+  vtkIdType OutputNumberOfFinalCells = OutputNumberOfLocalCells + num_import - num_export + callbackdata->LocalIdsToKeep.size();
   vtkIdType       ReservedPointCount = callbackdata->Output->GetNumberOfPoints();
   callbackdata->OutputPointsData     = callbackdata->Output->GetPoints()->GetData()->GetVoidPointer(0);
   // we'll need enough space to handle the largest cells
@@ -87,9 +87,12 @@ void vtkMeshPartitionFilter::zoltan_pre_migrate_function_cell(void *data, int nu
   //
   callbackdata->self->InitializeFieldDataArrayPointers(callbackdata, inCD, outCD, OutputNumberOfFinalCells);
 
-  std::vector<bool> local(OutputNumberOfLocalCells, true);
+  std::vector<int> local(OutputNumberOfLocalCells, 1);
   for (vtkIdType i=0; i<num_export; i++) {
-    local[export_global_ids[i]-callbackdata->ProcessOffsetsCellId[callbackdata->ProcessRank]] = false;    
+    local[export_global_ids[i]-callbackdata->ProcessOffsetsCellId[callbackdata->ProcessRank]] = 0;
+  }
+  for (vtkIdType i=0; i<callbackdata->LocalIdsToKeep.size(); i++) {
+    local[callbackdata->LocalIdsToKeep[i]] = 2;
   }
   //
   vtkIdType npts, *pts, newpts[32];
@@ -285,19 +288,18 @@ int vtkMeshPartitionFilter::RequestData(vtkInformation* info,
   // based on the point partition, decide which cells need to be sent away
   // sending some cells may imply sending a few extra points too
   //
-  PartitionInfo cell_partitioninfo;
 
   vtkDebugMacro(<<"Entering BuildCellToProcessList");
   if (this->ZoltanCallbackData.PointType==VTK_FLOAT) {
     this->BuildCellToProcessList<float>(this->ZoltanCallbackData.Input, 
-      cell_partitioninfo,       // lists of which cells to send to which process
+      this->cell_partitioninfo,       // lists of which cells to send to which process
       this->MigrateLists.known, // list of which points to send to which process
       this->LoadBalanceData     // the partition information generated during PartitionPoints
     );
   }
   else if (this->ZoltanCallbackData.PointType==VTK_DOUBLE) {
     this->BuildCellToProcessList<double>(this->ZoltanCallbackData.Input, 
-      cell_partitioninfo,       // lists of which cells to send to which process
+      this->cell_partitioninfo,       // lists of which cells to send to which process
       this->MigrateLists.known, // list of which points to send to which process
       this->LoadBalanceData     // the partition information generated during PartitionPoints
     );
@@ -324,47 +326,55 @@ int vtkMeshPartitionFilter::RequestData(vtkInformation* info,
     this->MigrateLists.known.Procs.clear();
     this->MigrateLists.known.LocalIdsToKeep.clear();
   }
+  this->ZoltanCallbackData.LocalIdsToKeep = cell_partitioninfo.LocalIdsToKeep;
+  this->ZoltanCallbackData.LocalIdsToSend = cell_partitioninfo.LocalIdsToSend;
 
   // after deleting memory, add a barrier to let ranks free as much as possible before the next big allocation
   this->Controller->Barrier();
   //
   // Distribute cells based on the usage of the points already distributed
   //
-  this->PartitionCells(cell_partitioninfo);
+  this->PartitionCells(this->cell_partitioninfo);
 
   // if we are generating ghost cells for the mesh, then we must allocate a new array
   // on the output to store the ghost cell information (level 0,1,2...N ) etc
-  vtkIdType numCells = this->ZoltanCallbackData.Output->GetNumberOfCells();
-  vtkIdType numTotalCells = numCells  + cell_partitioninfo.LocalIdsToKeep.size();
+  vtkIdType numCells = this->ZoltanCallbackData.Output->GetNumberOfCells() - this->cell_partitioninfo.LocalIdsToKeep.size();
+  vtkIdType numTotalCells = numCells  + this->cell_partitioninfo.LocalIdsToKeep.size();
   my_debug("Created a ghost array with "<<numTotalCells);
   this->ghost_array = vtkIntArray::New();
   this->ghost_array->SetName("vtkGhostLevels");
   this->ghost_array->SetNumberOfTuples(numTotalCells);
-  this->ZoltanCallbackData.Output->GetCellData()->AddArray(this->ghost_array);
   
-  for (int i=0; i<numCells; i++) {
+  for (int i=0; i<numTotalCells; i++) {
     this->ghost_array->SetTuple1(i, 0);
   }
-  if (this->NumberOfGhostLevels>0){
-    VTK_ZOLTAN_PARTITION_FILTER::CallbackData *callbackdata = &this->ZoltanCallbackData;
-    vtkPolyData         *pdata = vtkPolyData::SafeDownCast(this->ZoltanCallbackData.Input);
-    vtkPolyData         *pdata2 = vtkPolyData::SafeDownCast(this->ZoltanCallbackData.Output);
-    vtkIdType npts, *pts, newPts[32];
-    for (int i=0; i< cell_partitioninfo.LocalIdsToKeep.size(); i++) {
-      vtkIdType cellId = cell_partitioninfo.LocalIdsToKeep[i];
-      if (pdata) { pdata->GetCellPoints(cellId, npts, pts); }
-      for (int pc=0; pc<npts; pc++) {
-        newPts[pc] =  callbackdata->LocalToLocalIdMap[pts[pc]];
-      }
-      pdata2->InsertNextCell(pdata->GetCellType(cellId), npts, newPts);
-#ifdef VTK_ZOLTAN2_PARTITION_FILTER
-      this->ghost_array->SetTuple1(numCells + i, cell_partitioninfo.LocalIdsToSend[i] );
-#else
-      this->ghost_array->SetTuple1(numCells + i, 1);
-#endif
-      this->ZoltanCallbackData.OutCellCount++;
-    }
-  }
+//  if (this->NumberOfGhostLevels>0){
+//    VTK_ZOLTAN_PARTITION_FILTER::CallbackData *callbackdata = &this->ZoltanCallbackData;
+//    vtkPolyData         *pdata = vtkPolyData::SafeDownCast(this->ZoltanCallbackData.Input);
+//    vtkPolyData         *pdata2 = vtkPolyData::SafeDownCast(this->ZoltanCallbackData.Output);
+//    vtkIdType npts, *pts, newPts[32];
+//    for (int i=0; i<this->cell_partitioninfo.LocalIdsToKeep.size(); i++) {
+//      vtkIdType cellId = this->cell_partitioninfo.LocalIdsToKeep[i];
+//      if (pdata) { pdata->GetCellPoints(cellId, npts, pts); }
+//      for (int pc=0; pc<npts; pc++) {
+//        if (callbackdata->LocalToLocalIdMap[pts[pc]]!=-1)
+//          newPts[pc] =  callbackdata->LocalToLocalIdMap[pts[pc]];
+//        else{
+//          // points have already been copied otherwise we would end up here
+//          my_debug("ABORT!!! ");
+//        }
+//      }
+////      pdata2->GetPolys()->InsertNextCell(npts, newPts);
+//      pdata2->InsertNextCell(pdata->GetCellType(cellId), npts, newPts);
+//#ifdef VTK_ZOLTAN2_PARTITION_FILTER
+//      this->ghost_array->SetTuple1(numCells + i, cell_partitioninfo.LocalIdsToSend[i] );
+//#else
+//      this->ghost_array->SetTuple1(numCells + i, 1);
+//#endif
+//      this->ZoltanCallbackData.OutCellCount++;
+//    }
+//  }
+    this->ZoltanCallbackData.Output->GetCellData()->AddArray(this->ghost_array);
   
   if (this->InputDisposable) {
     vtkDebugMacro(<<"Disposing of input points and point data");
@@ -434,7 +444,6 @@ int vtkMeshPartitionFilter::PartitionCells(PartitionInfo &cell_partitioninfo)
     Zoltan_Destroy(&this->ZoltanData);
     exit(0);
   }
-
   //
   //  make sure field arrays are setup and ready for migration/copying
   //
@@ -629,16 +638,6 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
 //      max_level = point_to_level_map[pts[0]];
       cell_level_info[cellId] = max_level;
       
-      if (cell_level_info[cellId]>GHOST_LEVEL && cell_level_info[cellId]<REMOTE_LEVEL) {
-        cell_partitioninfo.LocalIdsToKeep.push_back(cellId);
-#ifdef VTK_ZOLTAN2_PARTITION_FILTER
-        cell_partitioninfo.LocalIdsToSend.push_back(cell_level_info[cellId]-LEVEL_MAX);
-#endif
-        for (int pc=0; pc<npts; pc++) {
-          point_partitioninfo.LocalIdsToKeep.push_back(pts[pc]);
-        }
-      }
-      
       process_flag.assign(this->UpdateNumPieces,0);
       int points_remote = 0;
       for (j=0; j<npts; j++) {
@@ -700,6 +699,24 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
           }
         }
       }
+      
+      if (cell_level_info[cellId]>GHOST_LEVEL && cell_level_info[cellId]<REMOTE_LEVEL) {
+        if (cell_status[cellId]!=1){
+          cell_partitioninfo.LocalIdsToKeep.push_back(cellId);
+#ifdef VTK_ZOLTAN2_PARTITION_FILTER
+          cell_partitioninfo.LocalIdsToSend.push_back(cell_level_info[cellId]-LEVEL_MAX);
+#endif
+          for (int pc=0; pc<npts; pc++) {
+            if (localId_to_process_map[pts[pc]]!=this->UpdatePiece) {
+              point_partitioninfo.LocalIdsToKeep.push_back(pts[pc]);
+            }
+          }
+        }
+//        else
+//          my_debug("This is really happening!!!");
+      }
+      
+      
     }
 //    this->Controller->Barrier();
     for (int level = LOCAL_LEVEL; level <= REMOTE_LEVEL ; ++level)
@@ -837,12 +854,31 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
       // Start from the ghost level and move towards remote level
       for (int level = GHOST_LEVEL; level < REMOTE_LEVEL-1; ++level)
       {
+        
+        for (vtkIdType cellId=0; cellId<level_to_cell_map[level].size(); cellId++) {
+          // I want to keep those points too
+          std::vector<vtkIdType> pts_(cell_to_point_map[cellId]);
+          int npts_ = pts_.size();
+          
+          cell_partitioninfo.LocalIdsToKeep.push_back(cellId);
+#ifdef VTK_ZOLTAN2_PARTITION_FILTER
+          cell_partitioninfo.LocalIdsToSend.push_back(cell_level_info[cellId]-LEVEL_MAX);
+#endif
+          
+          for (int i = 0; i < npts_; ++i)
+          {
+            if (localId_to_process_map[pts_[i]]!=this->UpdatePiece) {
+              point_partitioninfo.LocalIdsToKeep.push_back(pts_[i]);
+            }
+          }
+
+        }
         std::vector<vtkIdType> next_level_cells;
   //#define USE_VTK_ALGO_FOR_NEIGHBORS
   #ifdef  USE_VTK_ALGO_FOR_NEIGHBORS
         
         this->Timer->StartTimer();
-        for (int cell_id;  cell_id < level_to_cell_map[level].size(); ++cell_id) {
+        for (int cell_id = 0;  cell_id < level_to_cell_map[level].size(); ++cell_id) {
           // Cell ID
           cellId = level_to_cell_map[level][cell_id];
           
@@ -906,20 +942,20 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
               cell_level_info[neighborCellId] = level+1;  
               level_to_cell_map[cell_level_info[neighborCellId]].push_back(neighborCellId);
 
-              // I want to keep those points too          
-              std::vector<vtkIdType> pts_(cell_to_point_map[neighborCellId]);
-              int npts_ = pts_.size();
-      
-              cell_partitioninfo.LocalIdsToKeep.push_back(neighborCellId);
-#ifdef VTK_ZOLTAN2_PARTITION_FILTER
-              cell_partitioninfo.LocalIdsToSend.push_back(cell_level_info[neighborCellId]-LEVEL_MAX);
-#endif
-
-              for (int i = 0; i < npts_; ++i)
-              {
-                point_partitioninfo.LocalIdsToKeep.push_back(pts_[i]);
-              }
-            }    
+//              // I want to keep those points too          
+//              std::vector<vtkIdType> pts_(cell_to_point_map[neighborCellId]);
+//              int npts_ = pts_.size();
+//      
+//              cell_partitioninfo.LocalIdsToKeep.push_back(neighborCellId);
+//#ifdef VTK_ZOLTAN2_PARTITION_FILTER
+//              cell_partitioninfo.LocalIdsToSend.push_back(cell_level_info[neighborCellId]-LEVEL_MAX);
+//#endif
+//
+//              for (int i = 0; i < npts_; ++i)
+//              {
+//                point_partitioninfo.LocalIdsToKeep.push_back(pts_[i]);
+//              }
+            }
           }
         }
 
@@ -927,7 +963,7 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
       
       // Previous Level Ghost Cells : Points to be sent
       // Start from the ghost level and move towards local level
-      for (int level = GHOST_LEVEL; level > LOCAL_LEVEL+1; --level)
+      for (int level = GHOST_LEVEL; level > LOCAL_LEVEL+1 && false; --level)
       {
         std::vector<process_tuple> next_level_cells;
         // For all cell at this level
@@ -995,17 +1031,6 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
       for (int level = LOCAL_LEVEL; level <= REMOTE_LEVEL ; ++level)
       {
         my_debug("Level:"<<level<<"\t Cells:"<<level_to_cell_map[level].size()<<"\t Cells:"<<std::count(cell_level_info.begin(), cell_level_info.end(), level) );
-//        if (level>=GHOST_LEVEL && level<REMOTE_LEVEL) {
-//          for (int cid=0; cid<level_to_cell_map[level].size(); cid++) {
-//            cellId = level_to_cell_map[level][cid];
-//            if (cell_level_info[cellId]>GHOST_LEVEL && cell_level_info[cellId]<REMOTE_LEVEL) {
-//
-//              for (int pc=0; pc<npts; pc++) {
-//                point_partitioninfo.LocalIdsToKeep.push_back(pts[pc]);
-//              }
-//            }
-//          }
-//        }
       }
     }
   }
@@ -1021,6 +1046,9 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
   //
   std::sort(point_partitioninfo.LocalIdsToKeep.begin(), point_partitioninfo.LocalIdsToKeep.end());
   point_partitioninfo.LocalIdsToKeep.resize(std::unique(point_partitioninfo.LocalIdsToKeep.begin(), point_partitioninfo.LocalIdsToKeep.end()) - point_partitioninfo.LocalIdsToKeep.begin());
+  
+  std::sort(cell_partitioninfo.LocalIdsToKeep.begin(), cell_partitioninfo.LocalIdsToKeep.end());
+  cell_partitioninfo.LocalIdsToKeep.resize(std::unique(cell_partitioninfo.LocalIdsToKeep.begin(), cell_partitioninfo.LocalIdsToKeep.end()) - cell_partitioninfo.LocalIdsToKeep.begin());
 
   //
   // After examining cells, we found some points we need to send away,
@@ -1043,6 +1071,8 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
   }
   
   my_debug("Ghost points generated");
+  
+  this->Controller->Barrier();
 
   vtkDebugMacro(<<"BuildCellToProcessList "  << 
     " numImport : " << this->LoadBalanceData.numImport <<

@@ -207,6 +207,8 @@ class VTK_EXPORT vtkZoltanV2PartitionFilter : public vtkDataSetAlgorithm
       std::vector<void*>            OutputArrayPointers;
       std::vector<int>              MemoryPerTuple;
       int                           TotalSizePerId;
+      std::vector<vtkIdType>        LocalIdsToKeep;
+      std::vector<vtkIdType>        LocalIdsToSend;
     } CallbackData;
 
     //----------------------------------------------------------------------------
