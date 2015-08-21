@@ -190,6 +190,7 @@ IF (processors)
 #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
+      -ghostMode 3
       -ghostOverlap 0.0
       -ghostLevels 0
       -scalarMode 0
@@ -237,8 +238,9 @@ IF (processors)
 #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
+      -ghostMode 2
       -ghostOverlap 3.0
-      -ghostLevels 3
+      -ghostLevels 2
       -scalarMode 1
       -scalarName vtkGhostLevels
       -scalarRange "0 4"
@@ -261,8 +263,8 @@ IF (processors)
       #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
       #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
       #      -cameraViewUp   "0 1 0"
-      -ghostOverlap 0.0
-      -ghostLevels 3
+      -ghostMode 3
+      -ghostLevels 2
       -scalarMode 1
       -scalarName vtkGhostLevels
       -scalarRange "0 4"

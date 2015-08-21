@@ -96,6 +96,9 @@ int main (int argc, char* argv[])
 
   // setup ghost options
   static_cast<vtkMeshPartitionFilter*>(test.partitioner.GetPointer())->SetGhostMode(test.ghostMode);
+  if (test.ghostMode!=vtkMeshPartitionFilter::None){
+    test.scalarRange[1] = test.ghostLevels;
+  }
   if (test.ghostMode==vtkMeshPartitionFilter::Neighbour) {
       testDebugMacro("****** Neighbor Touching Mode ******\tGhost levels: "<<test.ghostLevels);
       static_cast<vtkMeshPartitionFilter*>(test.partitioner.GetPointer())->SetNumberOfGhostLevels(test.ghostLevels);
