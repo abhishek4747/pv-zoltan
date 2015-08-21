@@ -190,7 +190,7 @@ IF (processors)
 #      -cameraPosition "-100.613214826891 1393.997094168 353.866251068379"
 #      -cameraFocus    "-100.613214826891 1393.997094168 -1565.74007414479"
 #      -cameraViewUp   "0 1 0"
-      -ghostMode 3
+      -ghostMode 0
       -ghostOverlap 0.0
       -ghostLevels 0
       -scalarMode 0
