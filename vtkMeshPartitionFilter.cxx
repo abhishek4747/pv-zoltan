@@ -76,7 +76,10 @@ void vtkMeshPartitionFilter::zoltan_pre_migrate_function_cell(void *data, int nu
   vtkIdType uniqueSends = 0;
   for (vtkIdType i=0; i<num_export; i++) {
     vtkIdType GID = export_global_ids[i];
-    vtkIdType LID = GID - callbackdata->ProcessOffsetsPointId[callbackdata->ProcessRank];
+    vtkIdType LID = GID - callbackdata->ProcessOffsetsCellId[callbackdata->ProcessRank];
+    if (LID<0 || LID>callbackdata->RemoteGhost.size()){
+      std::cout<<"SOMETHING VERY BAD: cells:"<<callbackdata->Input->GetNumberOfCells()<<"\tLID: "<<LID<<"\tRemoteGhostSize:"<<callbackdata->RemoteGhost.size()<<std::endl;
+    }
     if (callbackdata->LocalToLocalIdMap[LID]==0 && callbackdata->RemoteGhost[LID]!=1) {
       callbackdata->LocalToLocalIdMap[LID] = -1;
       uniqueSends++;
@@ -388,6 +391,8 @@ my_debug("Partition of Cell starting.");
     this->ZoltanCallbackData.Input->GetPointData()->Initialize();
   }
 
+  this->cell_partitioninfo.RemoteGhost.clear();
+  this->MigrateLists.known.RemoteGhost.clear();
   
 #ifdef VTK_ZOLTAN2_PARTITION_FILTER
   cell_partitioninfo.LocalIdsToSend.clear();
@@ -861,7 +866,6 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
                 if (this->UpdatePiece==localId_to_process_map[pts[i]])
                   point_partitioninfo.RemoteGhost[pts[i]] = 1;
               }
-
             }
 
           }
@@ -971,7 +975,7 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
       
       // Previous Level Ghost Cells : Points to be sent
       // Start from the ghost level and move towards local level
-      for (int level = GHOST_LEVEL; level > LOCAL_LEVEL+1; --level)
+      for (int level = GHOST_LEVEL; level > LOCAL_LEVEL+1 && false; --level)
       {
         std::vector<process_tuple> next_level_cells;
         // For all cell at this level
