@@ -72,9 +72,20 @@ void vtkMeshPartitionFilter::zoltan_pre_migrate_function_cell(void *data, int nu
   ZOLTAN_ID_PTR export_local_ids, int *export_procs, int *export_to_part, int *ierr)
 {
   CallbackData *callbackdata = static_cast<CallbackData*>(data);
+  
+  vtkIdType uniqueSends = 0;
+  for (vtkIdType i=0; i<num_export; i++) {
+    vtkIdType GID = export_global_ids[i];
+    vtkIdType LID = GID - callbackdata->ProcessOffsetsPointId[callbackdata->ProcessRank];
+    if (callbackdata->LocalToLocalIdMap[LID]==0 && callbackdata->RemoteGhost[LID]!=1) {
+      callbackdata->LocalToLocalIdMap[LID] = -1;
+      uniqueSends++;
+    }
+  }
+  
   // How many cells will we have at the end
   vtkIdType OutputNumberOfLocalCells = callbackdata->Input->GetNumberOfCells();
-  vtkIdType OutputNumberOfFinalCells = OutputNumberOfLocalCells + num_import - num_export + callbackdata->LocalIdsToKeep.size();
+  vtkIdType OutputNumberOfFinalCells = OutputNumberOfLocalCells + num_import - uniqueSends + callbackdata->LocalIdsToKeep.size();
   callbackdata->OutputPointsData     = callbackdata->Output->GetPoints()->GetData()->GetVoidPointer(0);
 
   // we'll need enough space to handle the largest cells
@@ -91,7 +102,7 @@ void vtkMeshPartitionFilter::zoltan_pre_migrate_function_cell(void *data, int nu
   std::vector<int> local(OutputNumberOfLocalCells, 1);
   for (vtkIdType i=0; i<num_export; i++) {
     vtkIdType this_lid = export_global_ids[i]-callbackdata->ProcessOffsetsCellId[callbackdata->ProcessRank];
-    local[this_lid] = 0;
+    local[this_lid] = callbackdata->RemoteGhost[this_lid];
   }
   for (vtkIdType i=0; i<callbackdata->LocalIdsToKeep.size(); i++) {
     if (local[callbackdata->LocalIdsToKeep[i]] ==0)
@@ -327,6 +338,7 @@ int vtkMeshPartitionFilter::RequestData(vtkInformation* info,
   // Based on the original partition and our extra cell point allocations
   // perform the main point exchange between all processes
   //
+  this->ZoltanCallbackData.RemoteGhost = this->MigrateLists.known.RemoteGhost;
   this->ComputeInvertLists(this->MigrateLists);
   this->ManualPointMigrate(this->MigrateLists, this->KeepInversePointLists==1);
   
@@ -338,6 +350,7 @@ int vtkMeshPartitionFilter::RequestData(vtkInformation* info,
   }
   this->ZoltanCallbackData.LocalIdsToKeep = cell_partitioninfo.LocalIdsToKeep;
   this->ZoltanCallbackData.LocalIdsToSend = cell_partitioninfo.LocalIdsToSend;
+  this->ZoltanCallbackData.RemoteGhost = cell_partitioninfo.RemoteGhost;
 
 my_debug("Partition of Cell starting.");
   // after deleting memory, add a barrier to let ranks free as much as possible before the next big allocation
@@ -735,6 +748,8 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
     // default for LEVEL_MAX = 0
     // [LOCAL_LEVEL] [ ] ...[-2] [-1] [GHOST_LEVEL / LEVEL_MAX] [+1] [+2] ... [REMOTE_LEVEL]
     
+    point_partitioninfo.RemoteGhost.assign(numPts, 0);
+    cell_partitioninfo.RemoteGhost.assign(numCells, 0);
     // Creating few look up tables
     std::vector<std::vector<vtkIdType> > point_to_cell_map;
     std::vector<std::vector<vtkIdType> > cell_to_point_map;
@@ -829,32 +844,39 @@ void vtkMeshPartitionFilter::BuildCellToProcessList(
       //
       if (cell_status[cellId]==2 || cell_status[cellId]==4) {
         if (cell_status[cellId]==2) {
-          if (this->UpdatePiece==0 && this->UpdatePiece!=destProcess){
-//            cell_partitioninfo.Procs.push_back(destProcess);
-//            cell_partitioninfo.GlobalIds.push_back(cellId + this->ZoltanCallbackData.ProcessOffsetsCellId[this->UpdatePiece]);
-//            cell_partitioninfo.RemoteGhost[cellId] = 1;
-            
+          if (this->UpdatePiece!=destProcess){
+            cell_partitioninfo.Procs.push_back(destProcess);
+            cell_partitioninfo.GlobalIds.push_back(cellId + this->ZoltanCallbackData.ProcessOffsetsCellId[this->UpdatePiece]);
+            cell_partitioninfo.RemoteGhost[cellId] = 1;
           }
           for (int i=0; i<npts; i++) {
             if (localId_to_process_map[pts[i]]!=this->UpdatePiece)
               point_partitioninfo.LocalIdsToKeep.push_back(pts[i]);
+
 //            else if ( this->UpdatePiece==0){
 //            }
-//            if (this->UpdatePiece==0 && this->UpdatePiece!=destProcess){
-//              process_vector.push_back(process_tuple(pts[i], destProcess));
-//            }
+            if (this->UpdatePiece!=destProcess){
+              if (destProcess!= localId_to_process_map[pts[i]]){
+                process_vector.push_back(process_tuple(pts[i], destProcess));
+                if (this->UpdatePiece==localId_to_process_map[pts[i]])
+                  point_partitioninfo.RemoteGhost[pts[i]] = 1;
+              }
+
+            }
 
           }
           if (this->UpdatePiece==0)
           my_debug("Sending "<<cellId<<" extra to "<<destProcess);
         }
-        for (int i=0; i<npts; i++) {
-          // the point is going to be sent away - but - we need to keep a copy locally
-          // if the cell was split over multiple remote processes, we must send the points
-          // needed to complete the cell to the correct process
-          if (cell_status[cellId]==4 && localId_to_process_map[pts[i]] != destProcess) {
-            // The point is going to be sent away, so add it to our send list
-            process_vector.push_back( process_tuple(pts[i], destProcess) );
+        if (cell_status[cellId]==4){
+          for (int i=0; i<npts; i++) {
+            // the point is going to be sent away - but - we need to keep a copy locally
+            // if the cell was split over multiple remote processes, we must send the points
+            // needed to complete the cell to the correct process
+            if (cell_status[cellId]==4 && localId_to_process_map[pts[i]] != destProcess) {
+              // The point is going to be sent away, so add it to our send list
+              process_vector.push_back( process_tuple(pts[i], destProcess) );
+            }
           }
         }
       }

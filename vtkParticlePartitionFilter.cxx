@@ -275,7 +275,7 @@ void vtkParticlePartitionFilter::FindPointsInHaloRegions(
   // so build a point to process map to quickly lookup the process Id from the point Id
   // 1) initially set all points as local to this process
   std::vector<int> localId_to_process_map(numPts, this->UpdatePiece); 
-  std::vector<int> ghost_flag(numPts, 0); 
+//  std::vector<int> ghost_flag(numPts, 0); 
   // 2) loop over all to be exported and note the destination
   int offset = this->ZoltanCallbackData.ProcessOffsetsPointId[this->ZoltanCallbackData.ProcessRank];
   for (vtkIdType i=0; i<loadBalanceData.numExport; i++) {
@@ -283,7 +283,7 @@ void vtkParticlePartitionFilter::FindPointsInHaloRegions(
     // cout<<"i: "<<i<<" \tlocal_id:"<<id<<"\tproc:"<<loadBalanceData.exportProcs[i]<<">>"<<this->UpdatePiece<<endl;
     localId_to_process_map[id] = loadBalanceData.exportProcs[i];
     // points marked for export by load balance are not ghost points
-    ghost_flag[i] = 0;
+//    ghost_flag[i] = 0;
   }
   // Since we already have a list of points to export, we don't want to
   // duplicate them, so traverse the points list once per process

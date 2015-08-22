@@ -210,6 +210,7 @@ class VTK_EXPORT vtkZoltanV2PartitionFilter : public vtkDataSetAlgorithm
       int                           TotalSizePerId;
       std::vector<vtkIdType>        LocalIdsToKeep;
       std::vector<vtkIdType>        LocalIdsToSend;
+      std::vector<vtkIdType>        RemoteGhost;
     } CallbackData;
 
     //----------------------------------------------------------------------------
@@ -246,6 +247,7 @@ class VTK_EXPORT vtkZoltanV2PartitionFilter : public vtkDataSetAlgorithm
       // Points which are to be copied locally
       std::vector<vtkIdType>      LocalIdsToKeep;
       std::vector<vtkIdType>      LocalIdsToSend;
+      std::vector<vtkIdType>      RemoteGhost;
       //
       PartitionInfo() : nIDs(0), GlobalIdsPtr(0), ProcsPtr(0) {}
     } PartitionInfo;

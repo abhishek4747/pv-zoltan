@@ -1532,7 +1532,7 @@ void vtkZoltanV2PartitionFilter::CopyPointsToSelf(
   for (vtkIdType i=0; i<num_export; i++) {
     vtkIdType GID = export_global_ids[i];
     vtkIdType LID = GID - callbackdata->ProcessOffsetsPointId[callbackdata->ProcessRank];
-    if (callbackdata->LocalToLocalIdMap[LID]==0) {
+    if (callbackdata->LocalToLocalIdMap[LID]==0 && callbackdata->RemoteGhost[LID]!=1) {
       callbackdata->LocalToLocalIdMap[LID] = -1;
       uniqueSends++;
     }
