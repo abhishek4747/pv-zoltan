@@ -147,7 +147,7 @@ int initTest(int argc, char* argv[], TestStruct &test)
   test.actor_shift = 0.0;
 
   // uncomment this to wait for debugger attach
-//   DEBUG_WAIT
+   DEBUG_WAIT
   //
   test.controller->Barrier();
 

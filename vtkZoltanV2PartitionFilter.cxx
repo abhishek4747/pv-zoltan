@@ -1208,7 +1208,8 @@ void vtkZoltanV2PartitionFilter::ComputeInvertLists(MigrationLists &migrationLis
     &migrationLists.found_to_part); 
     
   
-  if ( (zoltan_error != ZOLTAN_OK) || (migrationLists.found_global_ids==NULL) 
+  if ( (zoltan_error != ZOLTAN_OK)
+      || (migrationLists.found_global_ids==NULL)
     /*|| (migrationLists.found_local_ids==NULL) */
     || (migrationLists.found_procs==NULL) 
     /*|| (migrationLists.found_to_part==NULL)*/
@@ -1536,7 +1537,6 @@ void vtkZoltanV2PartitionFilter::CopyPointsToSelf(
       uniqueSends++;
     }
   }
-
 
   // now compute the final number of points we'll have
   vtkIdType N2 = N + num_reserved + num_import - (uniqueSends - LocalPointsToKeep.size());
